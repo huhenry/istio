@@ -15,8 +15,10 @@
 package v1alpha3
 
 import (
+	"os"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,7 +45,45 @@ import (
 	"istio.io/istio/pkg/proto"
 )
 
+func TestALPNHttp11OnlyBuildGatewayListenerTlsContext(t *testing.T) {
+	_ = os.Setenv("ALPN_PROTOCOLS", util.ALPNH11Only[0])
+
+	defer func() {
+		_ = os.Unsetenv("ALPN_PROTOCOLS")
+		features.ALPNProtocols.Reset()
+	}()
+	runTestBuildGatewayListenerTlsContext(t, util.ALPNH11Only)
+}
+
+func TestALPNHttp20OnlyBuildGatewayListenerTlsContext(t *testing.T) {
+	_ = os.Setenv("ALPN_PROTOCOLS", util.ALPNH2Only[0])
+
+	defer func() {
+		_ = os.Unsetenv("ALPN_PROTOCOLS")
+		features.ALPNProtocols.Reset()
+	}()
+	runTestBuildGatewayListenerTlsContext(t, util.ALPNH2Only)
+}
+
+func TestALPNHTTPBuildGatewayListenerTlsContext(t *testing.T) {
+	_ = os.Setenv("ALPN_PROTOCOLS", strings.Join(util.ALPNHttp, ","))
+
+	defer func() {
+		_ = os.Unsetenv("ALPN_PROTOCOLS")
+		features.ALPNProtocols.Reset()
+	}()
+	runTestBuildGatewayListenerTlsContext(t, util.ALPNHttp)
+}
+
 func TestBuildGatewayListenerTlsContext(t *testing.T) {
+	defer func() {
+		features.ALPNProtocols.Reset()
+	}()
+
+	runTestBuildGatewayListenerTlsContext(t, util.ALPNHttp)
+}
+
+func runTestBuildGatewayListenerTlsContext(t *testing.T, ingressAlpnProtocols []string) {
 	testCases := []struct {
 		name   string
 		server *networking.Server
@@ -162,7 +202,7 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			},
 			result: &auth.DownstreamTlsContext{
 				CommonTlsContext: &auth.CommonTlsContext{
-					AlpnProtocols: util.ALPNHttp,
+					AlpnProtocols: ingressAlpnProtocols,
 					TlsCertificateSdsSecretConfigs: []*auth.SdsSecretConfig{
 						{
 							Name:      "kubernetes://ingress-sds-resource-name",
@@ -186,7 +226,7 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 			},
 			result: &auth.DownstreamTlsContext{
 				CommonTlsContext: &auth.CommonTlsContext{
-					AlpnProtocols: util.ALPNHttp,
+					AlpnProtocols: ingressAlpnProtocols,
 					TlsCertificateSdsSecretConfigs: []*auth.SdsSecretConfig{
 						{
 							Name:      "kubernetes://ingress-sds-resource-name",
@@ -510,7 +550,48 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 	}
 }
 
+func TestHTTP10OnlyCreateGatewayHTTPFilterChainOpts(t *testing.T) {
+	_ = os.Setenv("ALPN_PROTOCOLS", util.ALPNH11Only[0])
+
+	defer func() {
+		_ = os.Unsetenv("ALPN_PROTOCOLS")
+		features.ALPNProtocols.Reset()
+	}()
+
+	runTestCreateGatewayHTTPFilterChainOpts(t, util.ALPNH11Only)
+}
+
+func TestHTTP20OnlyCreateGatewayHTTPFilterChainOpts(t *testing.T) {
+	_ = os.Setenv("ALPN_PROTOCOLS", util.ALPNH2Only[0])
+
+	defer func() {
+		_ = os.Unsetenv("ALPN_PROTOCOLS")
+		features.ALPNProtocols.Reset()
+	}()
+
+	runTestCreateGatewayHTTPFilterChainOpts(t, util.ALPNH2Only)
+}
+
+func TestALPNHttpCreateGatewayHTTPFilterChainOpts(t *testing.T) {
+	_ = os.Setenv("ALPN_PROTOCOLS", strings.Join(util.ALPNHttp, ","))
+
+	defer func() {
+		_ = os.Unsetenv("ALPN_PROTOCOLS")
+		features.ALPNProtocols.Reset()
+	}()
+
+	runTestCreateGatewayHTTPFilterChainOpts(t, util.ALPNHttp)
+}
+
 func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
+	defer func() {
+		features.ALPNProtocols.Reset()
+	}()
+
+	runTestCreateGatewayHTTPFilterChainOpts(t, util.ALPNHttp)
+}
+
+func runTestCreateGatewayHTTPFilterChainOpts(t *testing.T, alpnProtocols []string) {
 	var stripPortMode *hcm.HttpConnectionManager_StripAnyHostPort
 	testCases := []struct {
 		name        string

@@ -521,6 +521,11 @@ func buildGatewayListenerTLSContext(
 	// If SDS is enabled at gateway, and credential name is specified at gateway config, create
 	// SDS config for gateway to fetch key/cert at gateway agent.
 	case server.Tls.CredentialName != "":
+		// Apply ALPN protocols for ingressgateway only
+		if server.Tls.Mode == networking.ServerTLSSettings_SIMPLE {
+			ctx.CommonTlsContext.AlpnProtocols = features.ALPNProtocols.Get()
+		}
+
 		authn_model.ApplyCredentialSDSToServerCommonTLSContext(ctx.CommonTlsContext, server.Tls)
 	case server.Tls.Mode == networking.ServerTLSSettings_ISTIO_MUTUAL:
 		authn_model.ApplyToCommonTLSContext(ctx.CommonTlsContext, proxy, server.Tls.SubjectAltNames, []string{}, ctx.RequireClientCertificate.Value)
