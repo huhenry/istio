@@ -1,3 +1,4 @@
+{{- $gateway := index .Values "gateways" "istio-ingressgateway" }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -10,6 +11,8 @@ metadata:
     operator.istio.io/component: "Pilot"
     istio: pilot
     release: {{ .Release.Name }}
+    asm.{{ .Values.global.labelBaseDomain }}/healthcheck-component: "true"
+    asm.{{ .Values.global.labelBaseDomain }}/healthcheck-sidecarinjection: "true"
 {{- range $key, $val := .Values.pilot.deploymentLabels }}
     {{ $key }}: "{{ $val }}"
 {{- end }}
@@ -109,6 +112,12 @@ spec:
             value: "{{ .Values.revision | default `default` }}"
           - name: JWT_POLICY
             value: {{ .Values.global.jwtPolicy }}
+{{- if ne "yes" (index $gateway.podAnnotations "asm.alauda.io/h2-enabled") }}
+          - name: ALPN_PROTOCOLS
+            value: "http/1.1"
+{{- end }}
+          - name: PILOT_ENABLE_VIRTUAL_SERVICE_DELEGATE
+            value: "true"
           - name: PILOT_CERT_PROVIDER
             value: {{ .Values.global.pilotCertProvider }}
           - name: POD_NAME

@@ -1,0 +1,36 @@
+# Add x-client-xxx headers for spring cloud metrics
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  labels:
+    istio.io/rev: {{ .Values.revision | default "default" }}
+    release: {{ .Release.Name }}
+  name: spring-cloud-request-headers
+  namespace: {{ .Release.Namespace }}
+spec:
+  configPatches:
+  - applyTo: HTTP_FILTER
+    match:
+      context: SIDECAR_OUTBOUND
+      listener:
+        filterChain:
+          filter:
+            name: envoy.http_connection_manager
+    patch:
+      operation: INSERT_BEFORE
+      value:
+        name: envoy.lua
+        typed_config:
+          '@type': type.googleapis.com/envoy.config.filter.http.lua.v2.Lua
+          inlineCode: |
+            function envoy_on_request(request_handle)
+              function add_spring_cloud_header(request_handle, env, header)
+                local val = os.getenv(env)
+                if (val)
+                then
+                  request_handle:headers():add(header, val)
+                end
+              end
+              add_spring_cloud_header(request_handle, "ASM_MS_NAME", "X-Client-Name")
+              add_spring_cloud_header(request_handle, "POD_NAMESPACE", "X-Client-Namespace")
+            end

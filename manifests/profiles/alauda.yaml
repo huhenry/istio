@@ -1,0 +1,102 @@
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  meshConfig:
+    # https://gitlab-ce.alauda.cn/micro-service/istioctl/merge_requests/42
+    localityLbSetting:
+      enabled: false
+    defaultConfig:
+      sds:
+        enabled: true
+      tracing:
+        custom_tags:
+          msname:
+            environment:
+              name: ASM_MS_NAME
+              defaultValue: unknown
+
+  components:
+    ingressGateways:
+    - name: istio-ingressgateway
+      enabled: true
+      k8s:
+        service:
+          ports:
+            - port: 15021
+              targetPort: 15021
+              name: status-port
+              protocol: TCP
+            - port: 80
+              targetPort: 8080
+              nodePort: 30666
+              name: http2
+              protocol: TCP
+            - port: 443
+              targetPort: 8443
+              nodePort: 30665
+              name: https
+              protocol: TCP
+            - port: 15012
+              targetPort: 15012
+              name: tcp-istiod
+              protocol: TCP
+            - port: 15443
+              targetPort: 15443
+              name: tls
+              protocol: TCP
+    egressGateways:
+    - name: istio-egressgateway
+      enabled: true
+      k8s:
+        service:
+          ports:
+            - port: 10001
+              name: http2-asm1
+            - port: 10002
+              name: http2-asm2
+            - port: 10003
+              name: http2-asm3
+            - port: 10004
+              name: http2-asm4
+            - port: 10005
+              name: http2-asm5
+            - port: 10011
+              name: https-asm1
+            - port: 10012
+              name: https-asm2
+            - port: 10013
+              name: https-asm3
+            - port: 10014
+              name: https-asm4
+            - port: 10015
+              name: https-asm5
+  values:
+    global:
+      hub: harbor.alauda.cn/asm
+      jwtPolicy: first-party-jwt
+      proxy:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+      imagePullPolicy: IfNotPresent # NOTE(timonwong) 之前是 Always, 但是肯定会影响实际生产
+      imagePullSecrets:
+       - alaudak8s
+      arch:
+        amd64: 2
+        # s390x: 2
+        # ppc64le: 2
+        arm64: 2
+      labelBaseDomain: cpaas.io
+    pilot:
+      traceSampling: 100
+    gateways:
+      istio-ingressgateway:
+        type: NodePort
+        externalTrafficPolicy: Local
+        podAnnotations:
+          asm.alauda.io/h2-enabled: "yes"
+          asm.alauda.io/h2-workaround404Issue: "no"
