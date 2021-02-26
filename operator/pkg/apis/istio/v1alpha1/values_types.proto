@@ -38,6 +38,9 @@ message ArchConfig {
 
   // Sets pod scheduling weight for s390x arch.
   uint32 s390x = 3;
+
+  // Sets pod scheduling weight for ARM arch
+  uint32 arm64 = 4;
 }
 
 // Configuration for CNI.
@@ -407,6 +410,9 @@ message GlobalConfig {
   google.protobuf.BoolValue externalIstiod = 62;
 
   // The next available key is 64
+
+  // Controls alauda asm domain.
+  string labelBaseDomain = 512;
 }
 
 // Configuration for Security Token Service (STS) server.

@@ -60,6 +60,18 @@
         "tag_name": "response_code"
       },
       {
+        "regex": "(source_msname=\\.=(.+?);\\.;)",
+        "tag_name": "source_msname"
+      },
+      {
+        "regex": "(destination_msname=\\.=(.+?);\\.;)",
+        "tag_name": "destination_msname"
+      },
+      {
+        "regex": "(request_method=\\.=(.+?);\\.;)",
+        "tag_name": "request_method"
+      },
+      {
         "tag_name": "response_code_class",
         "regex": "_rq(_(\\dxx))$"
       },

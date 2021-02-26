@@ -52,6 +52,8 @@ const (
 
 	rbacEnvoyStatsMatcherInclusionSuffix = "rbac.allowed,rbac.denied,shadow_allowed,shadow_denied"
 
+	requiredEnvoyStatsMatcherInclusionSuffix = "ejections_active,ejections_total"
+
 	// Prefixes of V2 metrics.
 	// "reporter" prefix is for istio standard metrics.
 	// "component" suffix is for istio_build metric.
@@ -227,6 +229,8 @@ func getStatsOptions(meta *model.BootstrapNodeMetadata) []option.Instance {
 			requiredEnvoyStatsMatcherInclusionPrefixes, proxyConfigPrefixes)),
 		option.EnvoyStatsMatcherInclusionSuffix(parseOption(meta.StatsInclusionSuffixes,
 			rbacEnvoyStatsMatcherInclusionSuffix, proxyConfigSuffixes)),
+		option.EnvoyStatsMatcherInclusionSuffix(parseOption(meta.StatsInclusionSuffixes,
+			requiredEnvoyStatsMatcherInclusionSuffix, proxyConfigSuffixes)),
 		option.EnvoyStatsMatcherInclusionRegexp(parseOption(meta.StatsInclusionRegexps, "", proxyConfigRegexps)),
 		option.EnvoyExtraStatTags(extraStatTags),
 	}
