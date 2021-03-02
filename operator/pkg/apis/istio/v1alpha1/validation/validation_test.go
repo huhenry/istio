@@ -42,24 +42,6 @@ func TestValidateConfig(t *testing.T) {
 		warnings string
 	}{
 		{
-			name: "addons",
-			value: &v1alpha12.IstioOperatorSpec{
-				AddonComponents: map[string]*v1alpha12.ExternalComponentSpec{
-					"grafana": {
-						Enabled: &v1alpha12.BoolValueForPB{BoolValue: types.BoolValue{Value: true}},
-					},
-				},
-				Values: map[string]interface{}{
-					"grafana": map[string]interface{}{
-						"enabled": true,
-					},
-				},
-			},
-			errors: `! values.grafana.enabled is deprecated; use the samples/addons/ deployments instead
-, ! addonComponents.grafana.enabled is deprecated; use the samples/addons/ deployments instead
-`,
-		},
-		{
 			name: "global",
 			value: &v1alpha12.IstioOperatorSpec{
 				Values: map[string]interface{}{

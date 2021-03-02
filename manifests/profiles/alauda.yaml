@@ -70,6 +70,11 @@ spec:
               name: https-asm4
             - port: 10015
               name: https-asm5
+
+  addonComponents:
+    grafana:
+      enabled: true
+
   values:
     global:
       hub: harbor.alauda.cn/asm
@@ -100,3 +105,43 @@ spec:
         podAnnotations:
           asm.alauda.io/h2-enabled: "yes"
           asm.alauda.io/h2-workaround404Issue: "no"
+
+    grafana:
+      image:
+        repository: grafana/grafana
+        tag: 6.7.4
+      serverFromSubPath: "true"
+      persist: false
+      storageClassName: ""
+      accessMode: ReadWriteMany
+      security:
+        enabled: false
+        secretName: grafana
+        usernameKey: username
+        passphraseKey: passphrase
+      contextPath: /grafana
+      service:
+        annotations: { }
+        name: http
+        type: ClusterIP
+        externalPort: 3000
+        loadBalancerIP:
+        loadBalancerSourceRanges:
+      datasources: []
+      dashboardProviders:
+        dashboardproviders.yaml:
+          apiVersion: 1
+          providers:
+            - name: 'istio'
+              orgId: 1
+              folder: 'istio'
+              type: file
+              disableDeletion: false
+              options:
+                path: /var/lib/grafana/dashboards/istio
+      nodeSelector: { }
+      tolerations: [ ]
+      podAntiAffinityLabelSelector: [ ]
+      podAntiAffinityTermLabelSelector: [ ]
+      env: { }
+      envSecrets: { }

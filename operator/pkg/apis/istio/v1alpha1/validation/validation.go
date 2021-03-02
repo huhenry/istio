@@ -121,11 +121,9 @@ func checkDeprecatedSettings(iop *v1alpha1.IstioOperatorSpec) (util.Errors, stri
 	}
 
 	failHardSettings := []deprecatedSettings{
-		{"Values.grafana.enabled", "the samples/addons/ deployments", false},
 		{"Values.tracing.enabled", "the samples/addons/ deployments", false},
 		{"Values.kiali.enabled", "the samples/addons/ deployments", false},
 		{"Values.prometheus.enabled", "the samples/addons/ deployments", false},
-		{"AddonComponents.grafana.Enabled", "the samples/addons/ deployments", false},
 		{"AddonComponents.tracing.Enabled", "the samples/addons/ deployments", false},
 		{"AddonComponents.kiali.Enabled", "the samples/addons/ deployments", false},
 		{"AddonComponents.prometheus.Enabled", "the samples/addons/ deployments", false},

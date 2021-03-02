@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio-grafana-post-install-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: grafana
+    release: {{ .Release.Name }}
+    istio: grafana
+data:
+  post-start-hook.sh: |-    
+        #!/bin/bash
+        
+        while true ; do
+            echo -e "Wait for pod to be ready"
+
+            curl http://127.0.0.1:3000/api/dashboards/uid/GREY8jLlk > default-dashboard.json
+      
+            HOME_ID=$(cat default-dashboard.json |jq '.dashboard.id')
+
+            if [[ ! -z "$HOME_ID" ]]; then
+                break
+            fi
+            sleep 1
+        done
+        echo 'Home dashboard id is' $HOME_ID
+        curl http://127.0.0.1:3000/api/user/preferences -X PUT -H 'Content-Type: application/json' --data-binary '{"homeDashboardId": '$HOME_ID'}'
+
+
+        sleep infinity
+
