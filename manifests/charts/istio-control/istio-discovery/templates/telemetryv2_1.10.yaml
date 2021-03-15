@@ -225,6 +225,28 @@ spec:
                     {
                       "debug": "false",
                       "stat_prefix": "istio"
+                      "metrics": [
+                      {{- if .Values.global.multiCluster.clusterName }}
+                        {
+                          "dimensions": {
+                            "source_cluster": "node.metadata['CLUSTER_ID']",
+                            "destination_cluster": "upstream_peer.cluster_id"
+                          }
+                        },
+                      {{- end }}
+                        {
+                          "name": "requests_total",
+                          "dimensions": {
+                            "request_operation": "istio_operation"
+                          }
+                        },
+                        {
+                          "name": "request_duration_milliseconds",
+                          "dimensions": {
+                            "request_operation": "istio_operation"
+                          }
+                        }
+                      ]
                     }
                     {{- else }}
                     {{ toJson .Values.telemetry.v2.prometheus.configOverride.outboundSidecar | indent 18 }}
@@ -272,10 +294,24 @@ spec:
                       "debug": "false",
                       "stat_prefix": "istio",
                       "metrics": [
+                      {{- if .Values.global.multiCluster.clusterName }}
                         {
                           "dimensions": {
                             "destination_cluster": "node.metadata['CLUSTER_ID']",
                             "source_cluster": "downstream_peer.cluster_id"
+                          }
+                        },
+                      {{- end }}
+                        {
+                          "name": "requests_total",
+                          "dimensions": {
+                            "request_operation": "istio_operation"
+                          }
+                        },
+                        {
+                          "name": "request_duration_milliseconds",
+                          "dimensions": {
+                            "request_operation": "istio_operation"
                           }
                         }
                       ]
