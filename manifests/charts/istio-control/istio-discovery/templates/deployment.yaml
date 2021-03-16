@@ -11,8 +11,6 @@ metadata:
     operator.istio.io/component: "Pilot"
     istio: pilot
     release: {{ .Release.Name }}
-    asm.{{ .Values.global.labelBaseDomain }}/healthcheck-component: "true"
-    asm.{{ .Values.global.labelBaseDomain }}/healthcheck-sidecarinjection: "true"
 {{- range $key, $val := .Values.pilot.deploymentLabels }}
     {{ $key }}: "{{ $val }}"
 {{- end }}
@@ -47,6 +45,8 @@ spec:
         {{- else }}
         istio: pilot
         {{- end }}
+        asm.{{ .Values.global.labelBaseDomain }}/healthcheck-component: "true"
+        asm.{{ .Values.global.labelBaseDomain }}/healthcheck-sidecarinjection: "true"
       annotations:
         {{- if .Values.meshConfig.enablePrometheusMerge }}
         prometheus.io/port: "15014"
