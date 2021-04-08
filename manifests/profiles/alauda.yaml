@@ -50,6 +50,18 @@ spec:
       k8s:
         service:
           ports:
+            - port: 80
+              name: http2
+              targetPort: 8080
+              protocol: TCP
+            - port: 443
+              name: https
+              targetPort: 8443
+              protocol: TCP
+            - port: 15443
+              targetPort: 15443
+              name: tls
+              protocol: TCP
             - port: 10001
               name: http2-asm1
             - port: 10002
