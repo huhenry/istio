@@ -1,0 +1,39 @@
+{{- $gateway := index .Values "gateways" "istio-egressgateway" }}
+{{- if eq "yes" (index $gateway.podAnnotations "asm.alauda.io/h2-workaround404Issue") }}
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: {{ $gateway.name | default "istio-egressgateway" }}-misdirected-filter
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{ $gateway.labels | toYaml | indent 4 }}
+    release: {{ .Release.Name }}
+spec:
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.http_connection_manager
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.lua
+          typed_config:
+            "@type": "type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua"
+            inlineCode: |
+              function envoy_on_response(response_handle)
+                local headers = response_handle:headers()
+                local connection = response_handle:connection()
+
+                if connection:ssl() ~= nil and headers:get(":status") == "404" and headers:get("x-envoy-upstream-service-time") == nil then
+                  headers:replace(":status", "421")
+                end
+              end
+
+  workloadSelector:
+    labels:
+{{ $gateway.labels | toYaml | indent 6 }}
+{{- end }}
