@@ -4,7 +4,7 @@ spec:
   meshConfig:
     # https://gitlab-ce.alauda.cn/micro-service/istioctl/merge_requests/42
     localityLbSetting:
-      enabled: false
+      enabled: true
     defaultConfig:
       sds:
         enabled: true
