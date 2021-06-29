@@ -33,6 +33,7 @@ spec:
         release: istio
         chart: gateways
 {{- end }}
+        msname: {{ $gateway.name }}
         service.istio.io/canonical-name: {{ $gateway.name }}
         {{- if not (eq .Values.revision "") }}
         service.istio.io/canonical-revision: {{ .Values.revision }}
