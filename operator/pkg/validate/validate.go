@@ -23,6 +23,7 @@ import (
 	"istio.io/api/operator/v1alpha1"
 	operator_v1alpha1 "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
 	"istio.io/istio/operator/pkg/metrics"
+	"istio.io/istio/operator/pkg/name"
 	"istio.io/istio/operator/pkg/util"
 	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/config/mesh"
@@ -39,6 +40,7 @@ var (
 		"Hub":                                validateHub,
 		"Tag":                                validateTag,
 		"Revision":                           validateRevision,
+		"AddonComponents":                    validateAddonComponents,
 		"Components.IngressGateways[*].Name": validateGatewayName,
 		"Components.EgressGateways[*].Name":  validateGatewayName,
 	}
@@ -197,6 +199,22 @@ func validateRevision(_ util.Path, val interface{}) util.Errors {
 		err := fmt.Errorf("invalid revision specified: %s", val.(string))
 		return util.Errors{err}
 	}
+	return nil
+}
+
+func validateAddonComponents(path util.Path, val interface{}) util.Errors {
+	valMap, ok := val.(map[string]*v1alpha1.ExternalComponentSpec)
+	if !ok {
+		return util.NewErrs(fmt.Errorf("validateAddonComponents(%s) bad type %T, want map[string]*ExternalComponentSpec", path, val))
+	}
+
+	for key := range valMap {
+		cn := name.ComponentName(key)
+		if name.BundledAddonComponentNamesMap[cn] && (cn == name.TitleCase(cn)) {
+			return util.NewErrs(fmt.Errorf("invalid addon component name: %s, expect component name starting with lower-case character", key))
+		}
+	}
+
 	return nil
 }
 
