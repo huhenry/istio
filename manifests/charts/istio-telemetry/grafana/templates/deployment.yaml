@@ -39,14 +39,6 @@ spec:
 {{- end }}
 {{- end }}
       containers:
-        - name: post-start
-          image: "{{ .Values.global.hub }}/kubectl:1.6.5"
-          command: [ "/bin/bash", "/grafana/post-start-hook.sh" ]
-          securityContext:
-            runAsUser: 0
-          volumeMounts:
-          - mountPath: "/grafana"
-            name: configmap-post-install-dashboard
         - name: {{ .Chart.Name }}
           image: "{{ .Values.global.hub }}/grafana:{{ .Values.grafana.image.tag }}"
 {{- if .Values.global.imagePullPolicy }}
@@ -60,6 +52,8 @@ spec:
               path: /api/health
               port: 3000
           env:
+          - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+            value: /var/lib/grafana/dashboards/istio/istio-default-dashboard.json
           - name: GRAFANA_PORT
             value: "3000"
 {{- if .Values.grafana.security.enabled }}
@@ -139,9 +133,6 @@ spec:
 {{ toYaml .Values.global.defaultTolerations | indent 6 }}
 {{- end }}
       volumes:
-      - name: configmap-post-install-dashboard
-        configMap:
-          name: istio-grafana-post-install-dashboard
       - name: config
         configMap:
           name: istio-grafana
