@@ -73,7 +73,6 @@ var (
 			name.CNIComponentName,
 			name.IngressComponentName,
 			name.EgressComponentName,
-			name.AddonComponentName,
 		},
 		name.IstioBaseComponentName: {
 			name.PilotComponentName,

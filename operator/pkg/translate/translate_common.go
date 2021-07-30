@@ -102,13 +102,13 @@ func GetEnabledComponents(iopSpec *v1alpha1.IstioOperatorSpec) ([]string, error)
 			}
 		}
 		for _, c := range iopSpec.Components.IngressGateways {
-			if c.Enabled.GetValue() {
+			if c.Enabled.Value {
 				enabledComponents = append(enabledComponents, string(name.IngressComponentName))
 				break
 			}
 		}
 		for _, c := range iopSpec.Components.EgressGateways {
-			if c.Enabled.GetValue() {
+			if c.Enabled.Value {
 				enabledComponents = append(enabledComponents, string(name.EgressComponentName))
 				break
 			}
