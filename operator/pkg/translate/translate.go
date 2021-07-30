@@ -145,13 +145,6 @@ func NewTranslator() *Translator {
 				ToHelmValuesTreeRoot: "global",
 				SkipReverseTranslate: true,
 			},
-			name.ComponentName("Grafana"): {
-				ResourceType:         "Deployment",
-				ResourceName:         "grafana",
-				ContainerName:        "grafana",
-				HelmSubdir:           "istio-telemetry/grafana",
-				ToHelmValuesTreeRoot: "grafana",
-			},
 		},
 		// nolint: lll
 		KubernetesMapping: map[string]*Translation{

@@ -1090,8 +1090,6 @@ message Values {
 
   GlobalConfig global = 6;
 
-  TypeMapStringInterface grafana = 7;
-
   PilotConfig pilot = 10;
 
   // Controls whether telemetry is exported for Pilot.
