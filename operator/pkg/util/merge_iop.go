@@ -41,10 +41,9 @@ type iopMergeStructType struct {
 }
 
 type istioOperatorSpec struct {
-	MeshConfig      *meshConfig            `json:"meshConfig" patchStrategy:"merge"`
-	Components      *istioComponentSetSpec `json:"components" patchStrategy:"merge"`
-	AddonComponents *externalComponentSpec `json:"addonComponents" patchStrategy:"merge"`
-	Values          *values                `json:"values" patchStrategy:"merge"`
+	MeshConfig *meshConfig            `json:"meshConfig" patchStrategy:"merge"`
+	Components *istioComponentSetSpec `json:"components" patchStrategy:"merge"`
+	Values     *values                `json:"values" patchStrategy:"merge"`
 }
 
 type istioComponentSetSpec struct {
@@ -68,10 +67,6 @@ type gatewaySpec struct {
 	K8S *v1alpha1.KubernetesResourcesSpec `json:"k8s" patchStrategy:"merge"`
 }
 
-type externalComponentSpec struct {
-	Grafana *componentSpec `json:"grafana" patchStrategy:"merge"`
-}
-
 type values struct {
 	Cni                    *v1alpha12.CNIConfig             `json:"cni" patchStrategy:"merge"`
 	Gateways               *gatewaysConfig                  `json:"gateways" patchStrategy:"merge"`
@@ -83,7 +78,6 @@ type values struct {
 	MeshConfig             *meshConfig                      `json:"meshConfig" patchStrategy:"merge"`
 	Base                   *v1alpha12.BaseConfig            `json:"base" patchStrategy:"merge"`
 	IstiodRemote           *v1alpha12.IstiodRemoteConfig    `json:"istiodRemote" patchStrategy:"merge"`
-	Grafana                map[string]interface{}           `json:"grafana" patchStrategy:"merge"`
 }
 
 type gatewaysConfig struct {

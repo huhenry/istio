@@ -16,18 +16,14 @@ package helm
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"html/template"
-	"io/fs"
 	"io/ioutil"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"helm.sh/helm/v3/pkg/chart"
-	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/engine"
 	"sigs.k8s.io/yaml"
@@ -223,89 +219,6 @@ func IsDefaultProfile(profile string) bool {
 func readFile(path string) (string, error) {
 	b, err := ioutil.ReadFile(path)
 	return string(b), err
-}
-
-// GetAddonNamesFromCharts scans the charts directory for addon-components
-func GetAddonNamesFromCharts(chartsRootDir string, capitalize bool) (addonChartNames []string, err error) {
-	if chartsRootDir == "" {
-		// VFS
-		fnames, err := GetFilesRecursive(manifests.FS, ChartsSubdirName)
-		if err != nil {
-			return nil, fmt.Errorf("list files: %v", err)
-		}
-
-		for _, fname := range fnames {
-			basename := filepath.Base(fname)
-			if basename == "Chart.yaml" {
-				b, err := fs.ReadFile(manifests.FS, fname)
-				if err != nil {
-					return nil, fmt.Errorf("read file: %v", err)
-				}
-				bf := &loader.BufferedFile{
-					Name: basename,
-					Data: b,
-				}
-				bfs := []*loader.BufferedFile{bf}
-				scope.Debugf("Chart loaded: %s", bf.Name)
-				chart, err := loader.LoadFiles(bfs)
-				if err != nil {
-					return nil, err
-				} else if addonName := getAddonName(chart.Metadata); addonName != nil {
-					addonChartNames = append(addonChartNames, *addonName)
-				}
-			}
-		}
-	} else {
-		// filesystem
-		var chartFilenames []string
-		err = filepath.Walk(chartsRootDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if info.IsDir() {
-				if ok, err := chartutil.IsChartDir(path); ok && err == nil {
-					chartFilenames = append(chartFilenames, filepath.Join(path, chartutil.ChartfileName))
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, filename := range chartFilenames {
-			metadata, err := chartutil.LoadChartfile(filename)
-			if err != nil {
-				continue
-			}
-			if addonName := getAddonName(metadata); addonName != nil {
-				addonChartNames = append(addonChartNames, *addonName)
-			}
-		}
-	}
-	// sort for consistent results
-	sort.Strings(addonChartNames)
-	// check for duplicates
-	seen := make(map[string]bool)
-	for i, name := range addonChartNames {
-		if capitalize {
-			name = strings.ToUpper(name[:1]) + name[1:]
-			addonChartNames[i] = name
-		}
-		if seen[name] {
-			return nil, errors.New("Duplicate AddonComponent defined: " + name)
-		}
-		seen[name] = true
-	}
-	return addonChartNames, nil
-}
-
-func getAddonName(metadata *chart.Metadata) *string {
-	for _, str := range metadata.Keywords {
-		if str == "istio-addon" {
-			return &metadata.Name
-		}
-	}
-	return nil
 }
 
 // GetProfileYAML returns the YAML for the given profile name, using the given profileOrPath string, which may be either

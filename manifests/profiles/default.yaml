@@ -38,12 +38,6 @@ spec:
     istiodRemote:
       enabled: false
 
-  addonComponents:
-    grafana:
-      enabled: false
-      k8s:
-        replicaCount: 1
-
   # Global values passed through to helm global.yaml.
   # Please keep this in sync with manifests/charts/global.yaml
   values:
