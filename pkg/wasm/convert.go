@@ -20,19 +20,24 @@ import (
 
 	udpa "github.com/cncf/udpa/go/udpa/type/v1"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	wasm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3"
+	httpwasm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3"
+	networkwasm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/wasm/v3"
+	wasmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/wasm/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/conversion"
+	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/any"
 	"go.uber.org/atomic"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
 const (
-	apiTypePrefix      = "type.googleapis.com/"
-	typedStructType    = apiTypePrefix + "udpa.type.v1.TypedStruct"
-	wasmHTTPFilterType = apiTypePrefix + "envoy.extensions.filters.http.wasm.v3.Wasm"
+	apiTypePrefix         = "type.googleapis.com/"
+	typedStructType       = apiTypePrefix + "udpa.type.v1.TypedStruct"
+	wasmHTTPFilterType    = apiTypePrefix + "envoy.extensions.filters.http.wasm.v3.Wasm"
+	wasmNetworkFilterType = apiTypePrefix + "envoy.extensions.filters.network.wasm.v3.Wasm"
 )
 
 // MaybeConvertWasmExtensionConfig converts any presence of module remote download to local file.
@@ -122,29 +127,40 @@ func convert(resource *any.Any, cache Cache) (newExtensionConfig *any.Any, sendN
 		return
 	}
 
-	if wasmStruct.TypeUrl != wasmHTTPFilterType {
-		wasmLog.Debugf("typed extension config %+v does not contain wasm http filter", wasmStruct)
+	var wasmHTTPFilterConfig interface {
+		proto.Message
+		protoreflect.ProtoMessage
+
+		GetConfig() *wasmv3.PluginConfig
+	}
+
+	switch wasmStruct.TypeUrl {
+	case wasmHTTPFilterType:
+		wasmHTTPFilterConfig = &httpwasm.Wasm{}
+	case wasmNetworkFilterType:
+		wasmHTTPFilterConfig = &networkwasm.Wasm{}
+	default:
+		wasmLog.Debugf("typed extension config %+v does not contain wasm filter", wasmStruct)
 		return
 	}
 
-	wasmHTTPFilterConfig := &wasm.Wasm{}
 	if err := conversion.StructToMessage(wasmStruct.Value, wasmHTTPFilterConfig); err != nil {
 		wasmLog.Debugf("failed to convert extension config struct %+v to Wasm HTTP filter", wasmStruct)
 		return
 	}
 
-	if wasmHTTPFilterConfig.Config.GetVmConfig().GetCode().GetRemote() == nil {
+	if wasmHTTPFilterConfig.GetConfig().GetVmConfig().GetCode().GetRemote() == nil {
 		wasmLog.Debugf("no remote load found in Wasm HTTP filter %+v", wasmHTTPFilterConfig)
 		return
 	}
 
 	// Wasm plugin configuration has remote load. From this point, any failure should result as a Nack,
 	// unless the plugin is marked as fail open.
-	failOpen := wasmHTTPFilterConfig.Config.GetFailOpen()
+	failOpen := wasmHTTPFilterConfig.GetConfig().GetFailOpen()
 	sendNack = !failOpen
 	status = conversionSuccess
 
-	vm := wasmHTTPFilterConfig.Config.GetVmConfig()
+	vm := wasmHTTPFilterConfig.GetConfig().GetVmConfig()
 	remote := vm.GetCode().GetRemote()
 	httpURI := remote.GetHttpUri()
 	if httpURI == nil {

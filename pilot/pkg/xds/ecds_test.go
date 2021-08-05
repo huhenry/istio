@@ -23,9 +23,9 @@ import (
 	v3 "istio.io/istio/pilot/pkg/xds/v3"
 )
 
-func TestECDS(t *testing.T) {
+func testECDS(t *testing.T, configFile string) {
 	s := xds.NewFakeDiscoveryServer(t, xds.FakeOptions{
-		ConfigString: mustReadFile(t, "./testdata/ecds.yaml"),
+		ConfigString: mustReadFile(t, configFile),
 	})
 
 	ads := s.ConnectADS().WithType(v3.ExtensionConfigurationType)
@@ -45,5 +45,26 @@ func TestECDS(t *testing.T) {
 	}
 	if ec.Name != wantExtensionConfigName {
 		t.Errorf("extension config name got %v want %v", ec.Name, wantExtensionConfigName)
+	}
+}
+
+func TestECDS(t *testing.T) {
+	cases := []struct {
+		name       string
+		configFile string
+	}{
+		{
+			name:       "http",
+			configFile: "./testdata/ecds.yaml",
+		},
+		{
+			name:       "network",
+			configFile: "./testdata/ecds_network.yaml",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			testECDS(t, tc.configFile)
+		})
 	}
 }
