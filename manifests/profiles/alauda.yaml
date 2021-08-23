@@ -6,6 +6,7 @@ spec:
     localityLbSetting:
       enabled: true
     defaultConfig:
+      holdApplicationUntilProxyStarts: true
       sds:
         enabled: true
       tracing:
