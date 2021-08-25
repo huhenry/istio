@@ -11,6 +11,33 @@ spec:
   configPatches:
   - applyTo: HTTP_FILTER
     match:
+      context: GATEWAY
+      listener:
+        filterChain:
+          filter:
+            name: envoy.filters.network.http_connection_manager
+            subFilter:
+              name: envoy.filters.http.router
+    patch:
+      operation: INSERT_BEFORE
+      value:
+        name: envoy.lua
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+          inlineCode: |
+            function envoy_on_request(request_handle)
+              function add_spring_cloud_header(request_handle, env, header)
+                local val = os.getenv(env)
+                if (val)
+                then
+                  request_handle:headers():add(header, val)
+                end
+              end
+              add_spring_cloud_header(request_handle, "ASM_MS_NAME", "X-Client-Name")
+              add_spring_cloud_header(request_handle, "POD_NAMESPACE", "X-Client-Namespace")
+            end
+  - applyTo: HTTP_FILTER
+    match:
       context: SIDECAR_OUTBOUND
       listener:
         filterChain:
