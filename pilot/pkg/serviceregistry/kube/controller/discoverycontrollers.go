@@ -34,9 +34,10 @@ func (c *Controller) initDiscoveryHandlers(
 	endpointMode EndpointMode,
 	meshWatcher mesh.Watcher,
 	discoveryNamespacesFilter filter.DiscoveryNamespacesFilter,
+	discoveryServicesFilter filter.DiscoveryServicesFilter,
 ) {
-	c.initDiscoveryNamespaceHandlers(kubeClient, endpointMode, discoveryNamespacesFilter)
-	c.initMeshWatcherHandler(kubeClient, endpointMode, meshWatcher, discoveryNamespacesFilter)
+	c.initDiscoveryNamespaceHandlers(kubeClient, endpointMode, discoveryNamespacesFilter, discoveryServicesFilter)
+	c.initMeshWatcherHandler(kubeClient, endpointMode, meshWatcher, discoveryNamespacesFilter, discoveryServicesFilter)
 }
 
 // handle discovery namespace membership changes triggered by namespace events,
@@ -46,9 +47,10 @@ func (c *Controller) initDiscoveryNamespaceHandlers(
 	kubeClient kubelib.Client,
 	endpointMode EndpointMode,
 	discoveryNamespacesFilter filter.DiscoveryNamespacesFilter,
+	discoveryServicesFilter filter.DiscoveryServicesFilter,
 ) {
 	otype := "Namespaces"
-	c.nsInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	c.nsInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			incrementEvent(otype, "add")
 			ns := obj.(*v1.Namespace)
@@ -110,8 +112,10 @@ func (c *Controller) initMeshWatcherHandler(
 	endpointMode EndpointMode,
 	meshWatcher mesh.Watcher,
 	discoveryNamespacesFilter filter.DiscoveryNamespacesFilter,
+	discoveryServicesFilter filter.DiscoveryServicesFilter,
 ) {
 	meshWatcher.AddMeshHandler(func() {
+		discoveryServicesFilter.SelectorsChanged(meshWatcher.Mesh().GetDiscoveryServiceSelectors())
 		newSelectedNamespaces, deselectedNamespaces := discoveryNamespacesFilter.SelectorsChanged(meshWatcher.Mesh().GetDiscoverySelectors())
 
 		for _, nsName := range newSelectedNamespaces {

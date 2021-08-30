@@ -26,10 +26,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	klabels "k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/informers"
-	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	listerv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
@@ -147,6 +144,9 @@ type Options struct {
 
 	// If meshConfig.DiscoverySelectors are specified, the DiscoveryNamespacesFilter tracks the namespaces this controller watches.
 	DiscoveryNamespacesFilter filter.DiscoveryNamespacesFilter
+
+	// If meshConfig.DiscoverySelectors are specified, the DiscoveryServicesFilter tracks the namespaces this controller watches.
+	DiscoveryServicesFilter filter.DiscoveryServicesFilter
 }
 
 func (o Options) GetSyncInterval() time.Duration {
@@ -154,6 +154,18 @@ func (o Options) GetSyncInterval() time.Duration {
 		return o.SyncInterval
 	}
 	return time.Millisecond * 100
+}
+
+func (o Options) DiscoveryFilterFuncs() []filter.FilterFunc {
+	filters := make([]filter.FilterFunc, 0)
+	if o.DiscoveryNamespacesFilter != nil {
+		filters = append(filters, o.DiscoveryNamespacesFilter.Filter)
+	}
+
+	if o.DiscoveryServicesFilter != nil {
+		filters = append(filters, o.DiscoveryServicesFilter.Filter)
+	}
+	return filters
 }
 
 // EndpointMode decides what source to use to get endpoint information
@@ -205,9 +217,8 @@ type Controller struct {
 
 	queue queue.Instance
 
-	// TODO merge the namespace informers/listers
-	systemNsInformer cache.SharedIndexInformer
-	nsInformer       coreinformers.NamespaceInformer
+	nsInformer cache.SharedIndexInformer
+	nsLister   listerv1.NamespaceLister
 
 	serviceInformer filter.FilteredSharedIndexInformer
 	serviceLister   listerv1.ServiceLister
@@ -277,11 +288,15 @@ type Controller struct {
 
 	// If meshConfig.DiscoverySelectors are specified, the DiscoveryNamespacesFilter tracks the namespaces this controller watches.
 	discoveryNamespacesFilter filter.DiscoveryNamespacesFilter
+
+	// If meshConfig.DiscoverySelectors are specified, the DiscoveryServicesFilter tracks the namespaces this controller watches.
+	DiscoveryServicesFilter filter.DiscoveryServicesFilter
+	systemNamespace           string
 }
 
 // NewController creates a new Kubernetes controller
 // Created by bootstrap and multicluster (see secretcontroller).
-func NewController(kubeClient kubelib.Client, options Options) *Controller {
+func NewController(kubeClient kubelib.Client, options Options ) *Controller {
 	// The queue requires a time duration for a retry delay after a handler error
 	c := &Controller{
 		domainSuffix:                options.DomainSuffix,
@@ -303,26 +318,38 @@ func NewController(kubeClient kubelib.Client, options Options) *Controller {
 		informerInit:                atomic.NewBool(false),
 		initialSync:                 atomic.NewBool(false),
 		syncTimeout:                 options.SyncTimeout,
-		discoveryNamespacesFilter:   options.DiscoveryNamespacesFilter,
+		systemNamespace:             options.SystemNamespace,
 	}
+
+
+	c.nsInformer = kubeClient.KubeInformer().Core().V1().Namespaces().Informer()
+	c.nsLister = kubeClient.KubeInformer().Core().V1().Namespaces().Lister()
 
 	if options.SystemNamespace != "" {
-		c.systemNsInformer = informers.NewSharedInformerFactoryWithOptions(c.client, options.ResyncPeriod,
-			informers.WithTweakListOptions(func(listOpts *metav1.ListOptions) {
-				listOpts.FieldSelector = fields.OneTermEqualSelector("metadata.name", options.SystemNamespace).String()
-			})).Core().V1().Namespaces().Informer()
-		c.registerHandlers(c.systemNsInformer, "Namespaces", c.onSystemNamespaceEvent, nil)
+		nsInformer := filter.NewFilteredSharedIndexInformer(func(obj interface{}) bool {
+			ns, ok := obj.(*v1.Namespace)
+			if !ok {
+				log.Warnf("Namespace watch getting wrong type in event: %T", obj)
+				return false
+			}
+			return ns.Name == options.SystemNamespace
+		}, c.nsInformer)
+		c.registerHandlers(nsInformer, "Namespaces", c.onSystemNamespaceEvent, nil)
 	}
 
-	c.nsInformer = kubeClient.KubeInformer().Core().V1().Namespaces()
 
-	if c.discoveryNamespacesFilter == nil {
-		c.discoveryNamespacesFilter = filter.NewDiscoveryNamespacesFilter(c.nsInformer.Lister(), options.MeshWatcher.Mesh().DiscoverySelectors)
+	if options.DiscoveryNamespacesFilter == nil {
+		options.DiscoveryNamespacesFilter = filter.NewDiscoveryNamespacesFilter(c.nsLister, options.MeshWatcher.Mesh().DiscoverySelectors)
 	}
 
-	c.initDiscoveryHandlers(kubeClient, options.EndpointMode, options.MeshWatcher, c.discoveryNamespacesFilter)
+	if options.DiscoveryServicesFilter == nil {
+		options.DiscoveryServicesFilter = filter.NewDiscoveryServicesFilter(options.MeshWatcher.Mesh().DiscoveryServiceSelectors)
+	}
+	c.DiscoveryServicesFilter = options.DiscoveryServicesFilter
 
-	c.serviceInformer = filter.NewFilteredSharedIndexInformer(c.discoveryNamespacesFilter.Filter, kubeClient.KubeInformer().Core().V1().Services().Informer())
+	c.initDiscoveryHandlers(kubeClient, options.EndpointMode, options.MeshWatcher, options.DiscoveryNamespacesFilter, options.DiscoveryServicesFilter)
+
+	c.serviceInformer = filter.NewFilteredSharedIndexInformer(options.DiscoveryNamespacesFilter.Filter, kubeClient.KubeInformer().Core().V1().Services().Informer())
 	c.serviceLister = listerv1.NewServiceLister(c.serviceInformer.GetIndexer())
 
 	c.registerHandlers(c.serviceInformer, "Services", c.onServiceEvent, nil)
@@ -330,13 +357,13 @@ func NewController(kubeClient kubelib.Client, options Options) *Controller {
 	switch options.EndpointMode {
 	case EndpointsOnly:
 		endpointsInformer := filter.NewFilteredSharedIndexInformer(
-			c.discoveryNamespacesFilter.Filter,
+			options.DiscoveryNamespacesFilter.Filter,
 			kubeClient.KubeInformer().Core().V1().Endpoints().Informer(),
 		)
 		c.endpoints = newEndpointsController(c, endpointsInformer)
 	case EndpointSliceOnly:
 		endpointSliceInformer := filter.NewFilteredSharedIndexInformer(
-			c.discoveryNamespacesFilter.Filter,
+			options.DiscoveryNamespacesFilter.Filter,
 			kubeClient.KubeInformer().Discovery().V1beta1().EndpointSlices().Informer(),
 		)
 		c.endpoints = newEndpointSliceController(c, endpointSliceInformer)
@@ -347,7 +374,7 @@ func NewController(kubeClient kubelib.Client, options Options) *Controller {
 	c.nodeLister = kubeClient.KubeInformer().Core().V1().Nodes().Lister()
 	c.registerHandlers(c.nodeInformer, "Nodes", c.onNodeEvent, nil)
 
-	podInformer := filter.NewFilteredSharedIndexInformer(c.discoveryNamespacesFilter.Filter, kubeClient.KubeInformer().Core().V1().Pods().Informer())
+	podInformer := filter.NewFilteredSharedIndexInformer(options.DiscoveryNamespacesFilter.Filter, kubeClient.KubeInformer().Core().V1().Pods().Informer())
 	c.pods = newPodCache(c, podInformer, func(key string) {
 		item, exists, err := c.endpoints.getInformer().GetIndexer().GetByKey(key)
 		if err != nil {
@@ -411,6 +438,11 @@ func (c *Controller) onServiceEvent(curr interface{}, event model.Event) error {
 		return nil
 	}
 
+	isBlocked := !c.DiscoveryServicesFilter.Filter(curr)
+if event == model.EventAdd && isBlocked{
+	return nil
+}
+
 	log.Debugf("Handle event %s for service %s in namespace %s", event, svc.Name, svc.Namespace)
 
 	svcConv := kube.ConvertService(*svc, c.domainSuffix, c.clusterID)
@@ -456,7 +488,7 @@ func (c *Controller) onServiceEvent(curr interface{}, event model.Event) error {
 
 	// We also need to update when the Service changes. For Kubernetes, a service change will result in Endpoint updates,
 	// but workload entries will also need to be updated.
-	if event == model.EventAdd || event == model.EventUpdate {
+	if event == model.EventAdd || event == model.EventUpdate &&!isBlocked{
 		// Build IstioEndpoints
 		endpoints := c.endpoints.buildIstioEndpointsWithService(svc.Name, svc.Namespace, svcConv.Hostname)
 		if features.EnableK8SServiceSelectWorkloadEntries {
@@ -468,7 +500,10 @@ func (c *Controller) onServiceEvent(curr interface{}, event model.Event) error {
 			c.xdsUpdater.EDSCacheUpdate(c.clusterID, string(svcConv.Hostname), svc.Namespace, endpoints)
 		}
 	}
-
+	if event == model.EventUpdate && isBlocked{
+		c.xdsUpdater.EDSCacheUpdate(c.clusterID, string(svcConv.Hostname), svc.Namespace, nil)
+		event = model.EventDelete
+	}
 	c.xdsUpdater.SvcUpdate(c.clusterID, string(svcConv.Hostname), svc.Namespace, event)
 	// Notify service handlers.
 	for _, f := range c.serviceHandlers {
@@ -612,7 +647,7 @@ func (c *Controller) informersSynced() bool {
 		// registration/Run of informers hasn't occurred yet
 		return false
 	}
-	if (c.systemNsInformer != nil && !c.systemNsInformer.HasSynced()) ||
+	if (c.nsInformer != nil && !c.nsInformer.HasSynced()) ||
 		!c.serviceInformer.HasSynced() ||
 		!c.endpoints.HasSynced() ||
 		!c.pods.informer.HasSynced() ||
@@ -629,10 +664,10 @@ func (c *Controller) informersSynced() bool {
 func (c *Controller) SyncAll() error {
 	var err *multierror.Error
 
-	if c.systemNsInformer != nil {
-		ns := c.systemNsInformer.GetStore().List()
-		for _, ns := range ns {
-			err = multierror.Append(err, c.onSystemNamespaceEvent(ns, model.EventAdd))
+	if c.nsLister != nil {
+		sysNs, _ := c.nsLister.Get(c.systemNamespace)
+		if sysNs != nil {
+			err = multierror.Append(err, c.onSystemNamespaceEvent(sysNs, model.EventAdd))
 		}
 	}
 
@@ -680,9 +715,6 @@ func (c *Controller) Run(stop <-chan struct{}) {
 		c.networksWatcher.AddNetworksHandler(c.reloadNetworkLookup)
 		c.reloadMeshNetworks()
 		c.reloadNetworkGateways()
-	}
-	if c.systemNsInformer != nil {
-		go c.systemNsInformer.Run(stop)
 	}
 	c.informerInit.Store(true)
 	kubelib.WaitForCacheSyncInterval(stop, c.syncInterval, c.informersSynced)
@@ -1039,21 +1071,25 @@ func (c *Controller) WorkloadInstanceHandler(si *model.WorkloadInstance, event m
 }
 
 func (c *Controller) onSystemNamespaceEvent(obj interface{}, ev model.Event) error {
-	var nw string
-	if ev != model.EventDelete {
-		ns, ok := obj.(*v1.Namespace)
-		if !ok {
-			log.Warnf("Namespace watch getting wrong type in event: %T", obj)
-			return nil
-		}
-		nw = ns.Labels[label.TopologyNetwork.Name]
+
+	if ev == model.EventDelete {
+		return nil
 	}
+	ns, ok := obj.(*v1.Namespace)
+	if !ok {
+		log.Warnf("Namespace watch getting wrong type in event: %T", obj)
+		return nil
+	}
+	if ns == nil {
+		return nil
+	}
+	nw := ns.Labels[label.TopologyNetwork.Name]
 	c.Lock()
 	oldDefaultNetwork := c.network
 	c.network = nw
 	c.Unlock()
 	// network changed, not using mesh networks, and controller has been initialized
-	if oldDefaultNetwork != c.network && c.network == c.defaultNetwork() && c.systemNsInformer.HasSynced() {
+	if oldDefaultNetwork != c.network && c.network == c.defaultNetwork() {
 		// refresh pods/endpoints/services
 		c.onNetworkChanged()
 	}
