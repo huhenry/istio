@@ -26,7 +26,7 @@ type FilteredSharedIndexInformer interface {
 }
 
 type filteredSharedIndexInformer struct {
-	filterFunc func(obj interface{}) bool
+	filter FilterController
 	cache.SharedIndexInformer
 	filteredIndexer *filteredIndexer
 }
@@ -34,13 +34,13 @@ type filteredSharedIndexInformer struct {
 // NewFilteredSharedIndexInformer wraps a SharedIndexInformer's handlers and indexer with a filter predicate,
 // which scopes the processed objects to only those that satisfy the predicate
 func NewFilteredSharedIndexInformer(
-	filterFunc func(obj interface{}) bool,
+	filterFuncs []FilterFunc,
 	sharedIndexInformer cache.SharedIndexInformer,
 ) FilteredSharedIndexInformer {
 	return &filteredSharedIndexInformer{
-		filterFunc:          filterFunc,
+		filter:              NewFilter(filterFuncs),
 		SharedIndexInformer: sharedIndexInformer,
-		filteredIndexer:     newFilteredIndexer(filterFunc, sharedIndexInformer.GetIndexer()),
+		filteredIndexer:     newFilteredIndexer(filterFuncs, sharedIndexInformer.GetIndexer()),
 	}
 }
 
@@ -48,19 +48,19 @@ func NewFilteredSharedIndexInformer(
 func (w *filteredSharedIndexInformer) AddEventHandler(handler cache.ResourceEventHandler) {
 	w.SharedIndexInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			if !w.filterFunc(obj) {
+			if !w.Filter(obj) {
 				return
 			}
 			handler.OnAdd(obj)
 		},
 		UpdateFunc: func(old, new interface{}) {
-			if !w.filterFunc(new) {
+			if !w.Filter(new) {
 				return
 			}
 			handler.OnUpdate(old, new)
 		},
 		DeleteFunc: func(obj interface{}) {
-			if !w.filterFunc(obj) {
+			if !w.Filter(obj) {
 				return
 			}
 			handler.OnDelete(obj)
@@ -81,18 +81,23 @@ func (w *filteredSharedIndexInformer) GetIndexer() cache.Indexer {
 	return w.filteredIndexer
 }
 
+// Filter filters incoming object before forwarding to event handler
+func (w *filteredSharedIndexInformer) Filter(obj interface{}) bool {
+	return w.filter.Filter(obj)
+}
+
 type filteredIndexer struct {
-	filterFunc func(obj interface{}) bool
+	filter FilterController
 	cache.Indexer
 }
 
 func newFilteredIndexer(
-	filterFunc func(obj interface{}) bool,
+	filterFuncs []FilterFunc,
 	indexer cache.Indexer,
 ) *filteredIndexer {
 	return &filteredIndexer{
-		filterFunc: filterFunc,
-		Indexer:    indexer,
+		filter:  NewFilter(filterFuncs),
+		Indexer: indexer,
 	}
 }
 
@@ -100,7 +105,7 @@ func (w filteredIndexer) List() []interface{} {
 	unfiltered := w.Indexer.List()
 	var filtered []interface{}
 	for _, obj := range unfiltered {
-		if w.filterFunc(obj) {
+		if w.filter.Filter(obj) {
 			filtered = append(filtered, obj)
 		}
 	}
@@ -112,7 +117,7 @@ func (w filteredIndexer) GetByKey(key string) (item interface{}, exists bool, er
 	if !exists || err != nil {
 		return nil, exists, err
 	}
-	if w.filterFunc(item) {
+	if w.filter.Filter(item) {
 		return item, true, nil
 	}
 	return nil, false, nil

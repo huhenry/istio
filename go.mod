@@ -15,6 +15,9 @@ replace github.com/docker/docker => github.com/moby/moby v17.12.0-ce-rc1.0.20200
 // Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
 replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
 
+// Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
+replace istio.io/api v0.0.0-20210819145325-4e216752748c => github.com/huhenry/api v0.0.0-20210830014650-a71edbe2a378
+
 require (
 	cloud.google.com/go v0.90.0
 	contrib.go.opencensus.io/exporter/prometheus v0.3.0

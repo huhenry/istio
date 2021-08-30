@@ -34,9 +34,10 @@ func (c *Controller) initDiscoveryHandlers(
 	endpointMode EndpointMode,
 	meshWatcher mesh.Watcher,
 	discoveryNamespacesFilter filter.DiscoveryNamespacesFilter,
+	discoveryServicesFilter filter.DiscoveryServicesFilter,
 ) {
-	c.initDiscoveryNamespaceHandlers(kubeClient, endpointMode, discoveryNamespacesFilter)
-	c.initMeshWatcherHandler(kubeClient, endpointMode, meshWatcher, discoveryNamespacesFilter)
+	c.initDiscoveryNamespaceHandlers(kubeClient, endpointMode, discoveryNamespacesFilter, discoveryServicesFilter)
+	c.initMeshWatcherHandler(kubeClient, endpointMode, meshWatcher, discoveryNamespacesFilter, discoveryServicesFilter)
 }
 
 // handle discovery namespace membership changes triggered by namespace events,
@@ -46,6 +47,7 @@ func (c *Controller) initDiscoveryNamespaceHandlers(
 	kubeClient kubelib.Client,
 	endpointMode EndpointMode,
 	discoveryNamespacesFilter filter.DiscoveryNamespacesFilter,
+	discoveryServicesFilter filter.DiscoveryServicesFilter,
 ) {
 	otype := "Namespaces"
 	c.nsInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -54,7 +56,7 @@ func (c *Controller) initDiscoveryNamespaceHandlers(
 			ns := obj.(*v1.Namespace)
 			if discoveryNamespacesFilter.NamespaceCreated(ns.ObjectMeta) {
 				c.queue.Push(func() error {
-					c.handleSelectedNamespace(endpointMode, ns.Name)
+					c.handleSelectedNamespace(endpointMode, ns.Name, discoveryServicesFilter.GetSelector())
 					return nil
 				})
 			}
@@ -68,12 +70,12 @@ func (c *Controller) initDiscoveryNamespaceHandlers(
 				var handleFunc func() error
 				if namespaceAdded {
 					handleFunc = func() error {
-						c.handleSelectedNamespace(endpointMode, newNs.Name)
+						c.handleSelectedNamespace(endpointMode, newNs.Name, discoveryServicesFilter.GetSelector())
 						return nil
 					}
 				} else {
 					handleFunc = func() error {
-						c.handleDeselectedNamespace(kubeClient, endpointMode, newNs.Name)
+						c.handleDeselectedNamespace(kubeClient, endpointMode, newNs.Name, discoveryServicesFilter.GetSelector())
 						return nil
 					}
 				}
@@ -110,14 +112,16 @@ func (c *Controller) initMeshWatcherHandler(
 	endpointMode EndpointMode,
 	meshWatcher mesh.Watcher,
 	discoveryNamespacesFilter filter.DiscoveryNamespacesFilter,
+	discoveryServicesFilter filter.DiscoveryServicesFilter,
 ) {
 	meshWatcher.AddMeshHandler(func() {
+		selector := discoveryServicesFilter.SelectorsChanged(meshWatcher.Mesh().GetDiscoveryServiceSelectors())
 		newSelectedNamespaces, deselectedNamespaces := discoveryNamespacesFilter.SelectorsChanged(meshWatcher.Mesh().GetDiscoverySelectors())
 
 		for _, nsName := range newSelectedNamespaces {
 			nsName := nsName // need to shadow variable to ensure correct value when evaluated inside the closure below
 			c.queue.Push(func() error {
-				c.handleSelectedNamespace(endpointMode, nsName)
+				c.handleSelectedNamespace(endpointMode, nsName, selector)
 				return nil
 			})
 		}
@@ -125,7 +129,7 @@ func (c *Controller) initMeshWatcherHandler(
 		for _, nsName := range deselectedNamespaces {
 			nsName := nsName // need to shadow variable to ensure correct value when evaluated inside the closure below
 			c.queue.Push(func() error {
-				c.handleDeselectedNamespace(kubeClient, endpointMode, nsName)
+				c.handleDeselectedNamespace(kubeClient, endpointMode, nsName, selector)
 				return nil
 			})
 		}
@@ -133,12 +137,12 @@ func (c *Controller) initMeshWatcherHandler(
 }
 
 // issue create events for all services, pods, and endpoints in the newly labeled namespace
-func (c *Controller) handleSelectedNamespace(endpointMode EndpointMode, ns string) {
+func (c *Controller) handleSelectedNamespace(endpointMode EndpointMode, ns string, selector labels.Selector) {
 	var errs *multierror.Error
 
 	// for each resource type, issue create events for objects in the labeled namespace
 
-	services, err := c.serviceLister.Services(ns).List(labels.Everything())
+	services, err := c.serviceLister.Services(ns).List(selector)
 	if err != nil {
 		log.Errorf("error listing services: %v", err)
 		return
@@ -147,7 +151,7 @@ func (c *Controller) handleSelectedNamespace(endpointMode EndpointMode, ns strin
 		errs = multierror.Append(errs, c.onServiceEvent(svc, model.EventAdd))
 	}
 
-	pods, err := listerv1.NewPodLister(c.pods.informer.GetIndexer()).Pods(ns).List(labels.Everything())
+	pods, err := listerv1.NewPodLister(c.pods.informer.GetIndexer()).Pods(ns).List(selector)
 	if err != nil {
 		log.Errorf("error listing pods: %v", err)
 		return
@@ -158,7 +162,7 @@ func (c *Controller) handleSelectedNamespace(endpointMode EndpointMode, ns strin
 
 	switch endpointMode {
 	case EndpointsOnly:
-		endpoints, err := listerv1.NewEndpointsLister(c.endpoints.getInformer().GetIndexer()).Endpoints(ns).List(labels.Everything())
+		endpoints, err := listerv1.NewEndpointsLister(c.endpoints.getInformer().GetIndexer()).Endpoints(ns).List(selector)
 		if err != nil {
 			log.Errorf("error listing endpoints: %v", err)
 			return
@@ -167,7 +171,7 @@ func (c *Controller) handleSelectedNamespace(endpointMode EndpointMode, ns strin
 			errs = multierror.Append(errs, c.endpoints.onEvent(ep, model.EventAdd))
 		}
 	case EndpointSliceOnly:
-		endpointSlices, err := v1beta1.NewEndpointSliceLister(c.endpoints.getInformer().GetIndexer()).EndpointSlices(ns).List(labels.Everything())
+		endpointSlices, err := v1beta1.NewEndpointSliceLister(c.endpoints.getInformer().GetIndexer()).EndpointSlices(ns).List(selector)
 		if err != nil {
 			log.Errorf("error listing endpoint slices: %v", err)
 			return
@@ -185,12 +189,12 @@ func (c *Controller) handleSelectedNamespace(endpointMode EndpointMode, ns strin
 // issue delete events for all services, pods, and endpoints in the delabled namespace
 // use kubeClient.KubeInformer() to bypass filter in order to list resources from non-labeled namespace,
 // which fetches informers from the SharedInformerFactory cache (i.e. does not instantiate a new informer)
-func (c *Controller) handleDeselectedNamespace(kubeClient kubelib.Client, endpointMode EndpointMode, ns string) {
+func (c *Controller) handleDeselectedNamespace(kubeClient kubelib.Client, endpointMode EndpointMode, ns string, selector labels.Selector) {
 	var errs *multierror.Error
 
 	// for each resource type, issue delete events for objects in the delabled namespace
 
-	services, err := kubeClient.KubeInformer().Core().V1().Services().Lister().Services(ns).List(labels.Everything())
+	services, err := kubeClient.KubeInformer().Core().V1().Services().Lister().Services(ns).List(selector)
 	if err != nil {
 		log.Errorf("error listing services: %v", err)
 		return
@@ -199,7 +203,7 @@ func (c *Controller) handleDeselectedNamespace(kubeClient kubelib.Client, endpoi
 		errs = multierror.Append(errs, c.onServiceEvent(svc, model.EventDelete))
 	}
 
-	pods, err := kubeClient.KubeInformer().Core().V1().Pods().Lister().Pods(ns).List(labels.Everything())
+	pods, err := kubeClient.KubeInformer().Core().V1().Pods().Lister().Pods(ns).List(selector)
 	if err != nil {
 		log.Errorf("error listing pods: %v", err)
 		return
@@ -210,7 +214,7 @@ func (c *Controller) handleDeselectedNamespace(kubeClient kubelib.Client, endpoi
 
 	switch endpointMode {
 	case EndpointsOnly:
-		endpoints, err := kubeClient.KubeInformer().Core().V1().Endpoints().Lister().Endpoints(ns).List(labels.Everything())
+		endpoints, err := kubeClient.KubeInformer().Core().V1().Endpoints().Lister().Endpoints(ns).List(selector)
 		if err != nil {
 			log.Errorf("error listing endpoints: %v", err)
 			return
@@ -219,7 +223,7 @@ func (c *Controller) handleDeselectedNamespace(kubeClient kubelib.Client, endpoi
 			errs = multierror.Append(errs, c.endpoints.onEvent(ep, model.EventDelete))
 		}
 	case EndpointSliceOnly:
-		endpointSlices, err := kubeClient.KubeInformer().Discovery().V1beta1().EndpointSlices().Lister().EndpointSlices(ns).List(labels.Everything())
+		endpointSlices, err := kubeClient.KubeInformer().Discovery().V1beta1().EndpointSlices().Lister().EndpointSlices(ns).List(selector)
 		if err != nil {
 			log.Errorf("error listing endpoint slices: %v", err)
 			return
