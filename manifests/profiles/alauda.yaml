@@ -96,8 +96,6 @@ spec:
             cpu: 100m
             memory: 128Mi
       imagePullPolicy: IfNotPresent # NOTE(timonwong) 之前是 Always, 但是肯定会影响实际生产
-      imagePullSecrets:
-        - alaudak8s
       arch:
         amd64: 2
         # s390x: 2
