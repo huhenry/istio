@@ -16,15 +16,17 @@ package wasm
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"testing"
 	"time"
 
 	udpa "github.com/cncf/udpa/go/udpa/type/v1"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	wasm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3"
+	httpwasm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3"
 	v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/wasm/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/conversion"
+	protov1 "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -49,7 +51,16 @@ func (c *mockCache) Get(downloadURL, checksum string, timeout time.Duration) (st
 }
 func (c *mockCache) Cleanup() {}
 
-func TestWasmConvert(t *testing.T) {
+func testWasmConvert(t *testing.T, wasmType string) {
+	getExtensionConfigMap := func(name string) *core.TypedExtensionConfig {
+		key := fmt.Sprintf("%s-%s", wasmType, name)
+		v, ok := extensionConfigMap[key]
+		if !ok {
+			panic(fmt.Errorf("%s not found in extension config map", key))
+		}
+		return v
+	}
+
 	cases := []struct {
 		name       string
 		input      []*core.TypedExtensionConfig
@@ -59,82 +70,82 @@ func TestWasmConvert(t *testing.T) {
 		{
 			name: "remote load success",
 			input: []*core.TypedExtensionConfig{
-				extensionConfigMap["remote-load-success"],
+				getExtensionConfigMap("remote-load-success"),
 			},
 			wantOutput: []*core.TypedExtensionConfig{
-				extensionConfigMap["remote-load-success-local-file"],
+				getExtensionConfigMap("remote-load-success-local-file"),
 			},
 			wantNack: false,
 		},
 		{
 			name: "remote load fail",
 			input: []*core.TypedExtensionConfig{
-				extensionConfigMap["remote-load-fail"],
+				getExtensionConfigMap("remote-load-fail"),
 			},
 			wantOutput: []*core.TypedExtensionConfig{
-				extensionConfigMap["remote-load-fail"],
+				getExtensionConfigMap("remote-load-fail"),
 			},
 			wantNack: true,
 		},
 		{
 			name: "mix",
 			input: []*core.TypedExtensionConfig{
-				extensionConfigMap["remote-load-fail"],
-				extensionConfigMap["remote-load-success"],
+				getExtensionConfigMap("remote-load-fail"),
+				getExtensionConfigMap("remote-load-success"),
 			},
 			wantOutput: []*core.TypedExtensionConfig{
-				extensionConfigMap["remote-load-fail"],
-				extensionConfigMap["remote-load-success-local-file"],
+				getExtensionConfigMap("remote-load-fail"),
+				getExtensionConfigMap("remote-load-success-local-file"),
 			},
 			wantNack: true,
 		},
 		{
 			name: "remote load fail open",
 			input: []*core.TypedExtensionConfig{
-				extensionConfigMap["remote-load-fail-open"],
+				getExtensionConfigMap("remote-load-fail-open"),
 			},
 			wantOutput: []*core.TypedExtensionConfig{
-				extensionConfigMap["remote-load-fail-open"],
+				getExtensionConfigMap("remote-load-fail-open"),
 			},
 			wantNack: false,
 		},
 		{
 			name: "no typed struct",
 			input: []*core.TypedExtensionConfig{
-				extensionConfigMap["empty"],
+				getExtensionConfigMap("empty"),
 			},
 			wantOutput: []*core.TypedExtensionConfig{
-				extensionConfigMap["empty"],
+				getExtensionConfigMap("empty"),
 			},
 			wantNack: false,
 		},
 		{
 			name: "no wasm",
 			input: []*core.TypedExtensionConfig{
-				extensionConfigMap["no-wasm"],
+				getExtensionConfigMap("no-wasm"),
 			},
 			wantOutput: []*core.TypedExtensionConfig{
-				extensionConfigMap["no-wasm"],
+				getExtensionConfigMap("no-wasm"),
 			},
 			wantNack: false,
 		},
 		{
 			name: "no remote load",
 			input: []*core.TypedExtensionConfig{
-				extensionConfigMap["no-remote-load"],
+				getExtensionConfigMap("no-remote-load"),
 			},
 			wantOutput: []*core.TypedExtensionConfig{
-				extensionConfigMap["no-remote-load"],
+				getExtensionConfigMap("no-remote-load"),
 			},
 			wantNack: false,
 		},
 		{
 			name: "no uri",
 			input: []*core.TypedExtensionConfig{
-				extensionConfigMap["no-http-uri"],
+				getExtensionConfigMap("no-http-uri"),
 			},
 			wantOutput: []*core.TypedExtensionConfig{
-				extensionConfigMap["no-http-uri"],
+				getExtensionConfigMap("no-http-uri"),
 			},
 			wantNack: true,
 		},
@@ -167,7 +178,12 @@ func TestWasmConvert(t *testing.T) {
 	}
 }
 
-func buildTypedStructExtensionConfig(name string, wasm *wasm.Wasm) *core.TypedExtensionConfig {
+func TestWasmConvert(t *testing.T) {
+	testWasmConvert(t, "http")
+	testWasmConvert(t, "network")
+}
+
+func buildTypedStructExtensionConfig(name string, wasm protov1.Message) *core.TypedExtensionConfig {
 	ws, _ := conversion.MessageToStruct(wasm)
 	return &core.TypedExtensionConfig{
 		Name: name,
@@ -180,112 +196,127 @@ func buildTypedStructExtensionConfig(name string, wasm *wasm.Wasm) *core.TypedEx
 	}
 }
 
-func buildWasmExtensionConfig(name string, wasm *wasm.Wasm) *core.TypedExtensionConfig {
+func buildWasmExtensionConfig(name string, wasm protov1.Message) *core.TypedExtensionConfig {
 	return &core.TypedExtensionConfig{
 		Name:        name,
 		TypedConfig: util.MessageToAny(wasm),
 	}
 }
 
-var extensionConfigMap = map[string]*core.TypedExtensionConfig{
-	"empty": {
-		Name: "empty",
-		TypedConfig: util.MessageToAny(
-			&structpb.Struct{},
-		),
-	},
-	"no-wasm": {
-		Name: "no-wasm",
-		TypedConfig: util.MessageToAny(
-			&udpa.TypedStruct{TypeUrl: apiTypePrefix + "sometype"},
-		),
-	},
-	"no-remote-load": buildTypedStructExtensionConfig("no-remote-load", &wasm.Wasm{
-		Config: &v3.PluginConfig{
-			Vm: &v3.PluginConfig_VmConfig{
-				VmConfig: &v3.VmConfig{
-					Runtime: "envoy.wasm.runtime.null",
-					Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Local{
-						Local: &core.DataSource{
-							Specifier: &core.DataSource_InlineString{
-								InlineString: "envoy.wasm.metadata_exchange",
+var extensionConfigMap = make(map[string]*core.TypedExtensionConfig)
+
+func init() {
+	extensionConfigMapTpl := map[string]*core.TypedExtensionConfig{
+		"empty": {
+			Name: "empty",
+			TypedConfig: util.MessageToAny(
+				&structpb.Struct{},
+			),
+		},
+		"no-wasm": {
+			Name: "no-wasm",
+			TypedConfig: util.MessageToAny(
+				&udpa.TypedStruct{TypeUrl: apiTypePrefix + "sometype"},
+			),
+		},
+		"no-remote-load": buildTypedStructExtensionConfig("no-remote-load", &httpwasm.Wasm{
+			Config: &v3.PluginConfig{
+				Vm: &v3.PluginConfig_VmConfig{
+					VmConfig: &v3.VmConfig{
+						Runtime: "envoy.wasm.runtime.null",
+						Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Local{
+							Local: &core.DataSource{
+								Specifier: &core.DataSource_InlineString{
+									InlineString: "envoy.wasm.metadata_exchange",
+								},
 							},
-						},
-					}},
+						}},
+					},
 				},
 			},
-		},
-	}),
-	"no-http-uri": buildTypedStructExtensionConfig("no-remote-load", &wasm.Wasm{
-		Config: &v3.PluginConfig{
-			Vm: &v3.PluginConfig_VmConfig{
-				VmConfig: &v3.VmConfig{
-					Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Remote{
-						Remote: &core.RemoteDataSource{},
-					}},
+		}),
+		"no-http-uri": buildTypedStructExtensionConfig("no-remote-load", &httpwasm.Wasm{
+			Config: &v3.PluginConfig{
+				Vm: &v3.PluginConfig_VmConfig{
+					VmConfig: &v3.VmConfig{
+						Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Remote{
+							Remote: &core.RemoteDataSource{},
+						}},
+					},
 				},
 			},
-		},
-	}),
-	"remote-load-success": buildTypedStructExtensionConfig("remote-load-success", &wasm.Wasm{
-		Config: &v3.PluginConfig{
-			Vm: &v3.PluginConfig_VmConfig{
-				VmConfig: &v3.VmConfig{
-					Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Remote{
-						Remote: &core.RemoteDataSource{
-							HttpUri: &core.HttpUri{
-								Uri: "http://test?module=test.wasm",
+		}),
+		"remote-load-success": buildTypedStructExtensionConfig("remote-load-success", &httpwasm.Wasm{
+			Config: &v3.PluginConfig{
+				Vm: &v3.PluginConfig_VmConfig{
+					VmConfig: &v3.VmConfig{
+						Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Remote{
+							Remote: &core.RemoteDataSource{
+								HttpUri: &core.HttpUri{
+									Uri: "http://test?module=test.wasm",
+								},
 							},
-						},
-					}},
+						}},
+					},
 				},
 			},
-		},
-	}),
-	"remote-load-success-local-file": buildWasmExtensionConfig("remote-load-success", &wasm.Wasm{
-		Config: &v3.PluginConfig{
-			Vm: &v3.PluginConfig_VmConfig{
-				VmConfig: &v3.VmConfig{
-					Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Local{
-						Local: &core.DataSource{
-							Specifier: &core.DataSource_Filename{
-								Filename: "test.wasm",
+		}),
+		"remote-load-success-local-file": buildWasmExtensionConfig("remote-load-success", &httpwasm.Wasm{
+			Config: &v3.PluginConfig{
+				Vm: &v3.PluginConfig_VmConfig{
+					VmConfig: &v3.VmConfig{
+						Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Local{
+							Local: &core.DataSource{
+								Specifier: &core.DataSource_Filename{
+									Filename: "test.wasm",
+								},
 							},
-						},
-					}},
+						}},
+					},
 				},
 			},
-		},
-	}),
-	"remote-load-fail": buildTypedStructExtensionConfig("remote-load-fail", &wasm.Wasm{
-		Config: &v3.PluginConfig{
-			Vm: &v3.PluginConfig_VmConfig{
-				VmConfig: &v3.VmConfig{
-					Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Remote{
-						Remote: &core.RemoteDataSource{
-							HttpUri: &core.HttpUri{
-								Uri: "http://test?module=test.wasm&error=download-error",
+		}),
+		"remote-load-fail": buildTypedStructExtensionConfig("remote-load-fail", &httpwasm.Wasm{
+			Config: &v3.PluginConfig{
+				Vm: &v3.PluginConfig_VmConfig{
+					VmConfig: &v3.VmConfig{
+						Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Remote{
+							Remote: &core.RemoteDataSource{
+								HttpUri: &core.HttpUri{
+									Uri: "http://test?module=test.wasm&error=download-error",
+								},
 							},
-						},
-					}},
+						}},
+					},
 				},
 			},
-		},
-	}),
-	"remote-load-fail-open": buildTypedStructExtensionConfig("remote-load-fail", &wasm.Wasm{
-		Config: &v3.PluginConfig{
-			Vm: &v3.PluginConfig_VmConfig{
-				VmConfig: &v3.VmConfig{
-					Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Remote{
-						Remote: &core.RemoteDataSource{
-							HttpUri: &core.HttpUri{
-								Uri: "http://test?module=test.wasm&error=download-error",
+		}),
+		"remote-load-fail-open": buildTypedStructExtensionConfig("remote-load-fail", &httpwasm.Wasm{
+			Config: &v3.PluginConfig{
+				Vm: &v3.PluginConfig_VmConfig{
+					VmConfig: &v3.VmConfig{
+						Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Remote{
+							Remote: &core.RemoteDataSource{
+								HttpUri: &core.HttpUri{
+									Uri: "http://test?module=test.wasm&error=download-error",
+								},
 							},
-						},
-					}},
+						}},
+					},
 				},
+				FailOpen: true,
 			},
-			FailOpen: true,
-		},
-	}),
+		}),
+	}
+
+	for _, wasmType := range []string{"http", "network"} {
+		for name, ec := range extensionConfigMapTpl {
+			ecCopy := proto.Clone(ec).(*core.TypedExtensionConfig)
+			ecCopy.Name = fmt.Sprintf("%s-%s", wasmType, ec.Name)
+			if wasmType == "network" {
+				ec.TypedConfig.TypeUrl = wasmNetworkFilterType
+			}
+			extensionConfigMap[fmt.Sprintf("%s-%s", wasmType, name)] = ecCopy
+		}
+	}
 }

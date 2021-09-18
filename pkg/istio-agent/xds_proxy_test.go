@@ -26,9 +26,11 @@ import (
 	"time"
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	wasm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3"
+	httpwasm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3"
+	networkwasm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/wasm/v3"
 	wasmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/wasm/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	golang_proto "github.com/golang/protobuf/proto"
 	google_rpc "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -366,7 +368,7 @@ func (f *fakeNackCache) Get(string, string, time.Duration) (string, error) {
 }
 func (f *fakeNackCache) Cleanup() {}
 
-func TestECDSWasmConversion(t *testing.T) {
+func testECDSWasmConversion(t *testing.T, filterType, configFile string) {
 	node := model.NodeMetadata{
 		Namespace:   "default",
 		InstanceIPs: []string{"1.1.1.1"},
@@ -378,7 +380,7 @@ func TestECDSWasmConversion(t *testing.T) {
 	proxy.wasmCache = &fakeAckCache{}
 
 	// Initialize discovery server with an ECDS resource.
-	ef, err := ioutil.ReadFile(path.Join(env.IstioSrc, "pilot/pkg/xds/testdata/ecds.yaml"))
+	ef, err := ioutil.ReadFile(path.Join(env.IstioSrc, configFile))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,29 +417,39 @@ func TestECDSWasmConversion(t *testing.T) {
 	if err := gotResp.Resources[0].UnmarshalTo(gotEcdsConfig); err != nil {
 		t.Fatalf("wasm config conversion output %v failed to unmarshal", gotResp.Resources[0])
 	}
-	wasm := &wasm.Wasm{
-		Config: &wasmv3.PluginConfig{
-			Vm: &wasmv3.PluginConfig_VmConfig{
-				VmConfig: &wasmv3.VmConfig{
 
-					Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Local{
-						Local: &core.DataSource{
-							Specifier: &core.DataSource_Filename{
-								Filename: "test",
-							},
+	pluginConfig := &wasmv3.PluginConfig{
+		Vm: &wasmv3.PluginConfig_VmConfig{
+			VmConfig: &wasmv3.VmConfig{
+
+				Code: &core.AsyncDataSource{Specifier: &core.AsyncDataSource_Local{
+					Local: &core.DataSource{
+						Specifier: &core.DataSource_Filename{
+							Filename: "test",
 						},
-					}},
-				},
+					},
+				}},
 			},
 		},
 	}
+
+	var wasm golang_proto.Message
+	switch filterType {
+	case "http":
+		wasm = &httpwasm.Wasm{Config: pluginConfig}
+	case "network":
+		wasm = &networkwasm.Wasm{Config: pluginConfig}
+	default:
+		panic(fmt.Errorf("unknown type: %s", filterType))
+	}
+
 	wantEcdsConfig := &core.TypedExtensionConfig{
 		Name:        "extension-config",
 		TypedConfig: util.MessageToAny(wasm),
 	}
 
 	if !proto.Equal(gotEcdsConfig, wantEcdsConfig) {
-		t.Errorf("xds proxy wasm config conversion got %v want %v", gotEcdsConfig, wantEcdsConfig)
+		t.Fatalf("xds proxy wasm config conversion got %v want %v", gotEcdsConfig, wantEcdsConfig)
 	}
 	v1 := proxy.ecdsLastAckVersion
 	n1 := proxy.ecdsLastNonce
@@ -477,6 +489,27 @@ func TestECDSWasmConversion(t *testing.T) {
 	v2 := proxy.ecdsLastAckVersion
 	if v1.Load() == v2.Load() {
 		t.Errorf("last ack ecds request was updated. expect it to remain the same which represents a nack for ecds update")
+	}
+}
+
+func TestECDSWasmConversion(t *testing.T) {
+	cases := []struct {
+		filterType string
+		configFile string
+	}{
+		{
+			filterType: "http",
+			configFile: "pilot/pkg/xds/testdata/ecds.yaml",
+		},
+		{
+			filterType: "network",
+			configFile: "pilot/pkg/xds/testdata/ecds_network.yaml",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.filterType, func(t *testing.T) {
+			testECDSWasmConversion(t, tc.filterType, tc.configFile)
+		})
 	}
 }
 
